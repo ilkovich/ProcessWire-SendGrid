@@ -184,10 +184,12 @@ class EmailSendGrid extends Process implements Module, ConfigurableModule {
      */
     public function sendMessageWithTemplate(SendGrid\Mail $mail, $view, $layout = null, $params = array()) {
         $view = $this->config->paths->templates . $this->viewPath . "/$view.inc";
-        $layout = $this->config->paths->templates . $this->layoutPath . "/$layout.inc";
+        if(!empty($layout)) {
+            $layout = $this->config->paths->templates . $this->layoutPath . "/$layout.inc";
 
-        if (!$layout || !is_file($layout))
-            throw new Exception('Cannot find layout ' . $layout);
+            if (!$layout || !is_file($layout))
+                throw new Exception('Cannot find layout ' . $layout);
+        }
 
         if (!$view || !is_file($view))
             throw new Exception('Cannot find view ' . $view);
@@ -202,7 +204,7 @@ class EmailSendGrid extends Process implements Module, ConfigurableModule {
         $body = $content = ob_get_contents();
         ob_end_clean();
 
-        if(isset($layout)) {
+        if(!empty($layout)) {
             chdir(dirname($layout));
             extract($params);
             ob_start();
