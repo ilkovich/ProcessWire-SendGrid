@@ -1,0 +1,214 @@
+<?php
+
+class EmailFlourish extends Process implements Module, ConfigurableModule {
+	public static function getModuleInfo() {
+		return array(
+            'title' => 'Flourish Email Support', 
+            'version' => '0.1', 
+            'summary' => 'Module to include flourish email support',
+			'singular' => true, 
+			'autoload' => false, 
+            'requires' => 'Flourish'
+        );
+	}
+
+    /**
+     * init 
+     * Load the sendgrid api 
+     *
+     * @access public
+     * @return void
+     */
+	public function init() {
+        $this->flourish = $this->modules->get('Flourish');
+	}
+
+    public function ___install() {
+    }
+
+    public function ___uninstall() {
+    }
+
+    /**
+     * getModuleConfigInputfields 
+     *
+     * SendGrid Configuration & Additional Defaults
+     *
+     * @param array $data 
+     * @static
+     * @access public
+     * @return void
+     */
+    static public function getModuleConfigInputfields(array $data) {
+        $inputfields = new InputfieldWrapper();
+
+        //default values
+        $fieldConfig = array(
+            'port'=> array(
+                'defaultValue' => '', 
+                'label' => 'Port',
+                'type' => 'InputfieldText',
+            ), 
+            'timeout'=> array(
+                'defaultValue' => '',
+                'label' => 'Timeout',
+                'type' => 'InputfieldText',
+            ),
+            'host' => array(
+                'defaultValue' => '',
+                'label' => 'Host',
+                'type' => 'InputfieldText'
+            ),
+            'username'=> array(
+                'defaultValue' => '',
+                'label' => 'Username',
+                'type' => 'InputfieldText'
+            ),
+            'password'=> array(
+                'defaultValue' => '',
+                'label' => 'Password',
+                'type' => 'InputfieldText',
+                'attributes' => array('type' => 'password')
+            ),
+            'layoutPath' => array(
+                'defaultValue' => 'layouts',
+                'label' => 'Layout Path',
+                'type' => 'InputfieldText',
+                'description' => 'Path where email layouts are stored relative to site/templates',
+            ),
+            'viewPath' => array(
+                'defaultValue' => 'views/email',
+                'label' => 'View Path',
+                'type' => 'InputfieldText',
+                'description' => 'Path where email views are stored relative to site/templates',
+            ),
+            'defaultFrom' => array(
+                'defaultValue' => '',
+                'label' => 'Default From Address',
+                'type' => 'InputfieldText',
+                'description' => 'The default address emails will originate from.'
+            ),
+            'defaultFromName' => array(
+                'defaultValue' => '',
+                'label' => 'Default From Name',
+                'type' => 'InputfieldText',
+                'description' => 'The default name emails will originate from.'
+            ),
+            'defaultSubject' => array(
+                'defaultValue' => 'A Message From '.$_SERVER['HTTP_HOST'],
+                'label' => 'Default Subject',
+                'description' => 'The default subject for outgoing emails',
+                'type' => 'InputfieldText'
+            )
+        );
+
+
+        //Initialize fields
+        foreach($fieldConfig as $name => $config ) {
+            if(!isset($data[$name])) $data[$name] = isset($config['defaultValue']) ? $config['defaultValue'] : '';
+            $type = isset($config['type']) ? $config['type'] : 'InputfieldText';
+            $f = wire('modules')->get($type);
+            $f->attr('id', "SendGrid_".$name);
+            $f->attr('name', "$name");
+            $f->label = $config['label'];
+            $f->description = isset($config['description']) ? $config['description'] : '';
+
+            //skip populating password field, unless we have post data
+            if($name !== 'password')
+                $f->value = $data[$name];
+
+            if(isset($config['attributes'])) 
+                foreach($config['attributes'] as $attr => $value) $f->attr($attr, $value);
+
+            $inputfields->append($f);
+        }
+
+        $password = wire('input')->post->password;
+        if(empty($password)) 
+            wire('input')->post->password=$data['password'];
+
+        return $inputfields;
+    }
+
+
+    /**
+     * createMessage 
+     * 
+     * Initialize the SendGrid instance
+     *
+     * @access public
+     * @return void
+     */
+    public function createMessage() {
+        $mail = new fEmail();
+        $mail->setFromEmail($this->defaultFrom, $this->defaultFromName);
+        $mail->setSubject($this->defaultSubject);
+        return $mail; 
+    }
+
+    /**
+     * sendMessage 
+     *
+     * Send a message. Use createMessage first to create the message 
+     * and add email parameters via the sendgrid-php library
+     *
+     * @param SendGrid\Mail $mail 
+     * @access public
+     * @return void
+     */
+    public function sendMessage(fEmail $mail) {
+        return $mail->send();
+    }
+
+    /**
+     * sendMessageWithTemplate 
+     * Send a message using a layout/view. Path of layouts view specified in the configuration.
+     * Layouts & Views have .inc extensions.
+     *
+     * @param SendGrid\Mail $mail 
+     * @param mixed $view Name of the view without the file extension
+     * @param mixed $layout Name of the layout without the file extension
+     * @param array $params Params to expose while generating the layout & view
+     *
+     * @access public
+     * @return void
+     */
+    public function sendMessageWithTemplate(fEmail $mail, $view, $layout = null, $params = array()) {
+        $view = $this->config->paths->templates . $this->viewPath . "/$view.inc";
+        if(!empty($layout)) {
+            $layout = $this->config->paths->templates . $this->layoutPath . "/$layout.inc";
+
+            if (!$layout || !is_file($layout))
+                throw new Exception('Cannot find layout ' . $layout);
+        }
+
+        if (!$view || !is_file($view))
+            throw new Exception('Cannot find view ' . $view);
+
+        $this->savedDir = getcwd();
+
+        chdir(dirname($view));
+        extract($params);
+
+        ob_start();
+        require($view);
+        $body = $content = ob_get_contents();
+        ob_end_clean();
+
+        if(!empty($layout)) {
+            chdir(dirname($layout));
+            extract($params);
+            ob_start();
+            require($layout);
+            $content = ob_get_contents();
+            ob_end_clean();
+        }
+
+        if ($this->savedDir)
+            chdir($this->savedDir);
+        $mail->setBody(strip_tags($body))->setHTMLBody($content);
+
+
+        return $this->sendMessage($mail);
+    }
+}
