@@ -123,9 +123,8 @@ class EmailSendGrid extends Process implements Module, ConfigurableModule {
         }
 
         $password = wire('input')->post->password;
-        if(empty($password)) {
+        if(empty($password)) 
             wire('input')->post->password=$data['password'];
-        }
 
         return $inputfields;
     }
