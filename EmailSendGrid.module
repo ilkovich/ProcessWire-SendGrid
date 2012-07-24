@@ -182,6 +182,13 @@ class EmailSendGrid extends Process implements Module, ConfigurableModule {
      * @return void
      */
     public function sendMessageWithTemplate(SendGrid\Mail $mail, $view, $layout = null, $params = array()) {
+        list($body, $content) = $this->getFormattedMessage($view, $layout, $params);
+        $mail->setText(strip_tags($body))->setHtml($content);
+
+        return $this->sendMessage($mail);
+    }
+
+    public function getFormattedMessage($view, $layout=null, $params = array()) {
         $view = $this->config->paths->templates . $this->viewPath . "/$view.inc";
         if(!empty($layout)) {
             $layout = $this->config->paths->templates . $this->layoutPath . "/$layout.inc";
@@ -214,9 +221,7 @@ class EmailSendGrid extends Process implements Module, ConfigurableModule {
 
         if ($this->savedDir)
             chdir($this->savedDir);
-        $mail->setText(strip_tags($body))->setHtml($content);
 
-
-        return $this->sendMessage($mail);
+        return array($body, $content);
     }
 }
